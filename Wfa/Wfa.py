@@ -67,6 +67,7 @@ class Wfa(object):
     2.    Exception handling - there is essentially no exception handling currently.  Definite need.
     3.    Simple credentials - the urllib2 library only uses simply credentials.  Need to investigate how this operates with Keystone.
     4.    Allow for workflow UUIDs to be specified during instantiation vs. simply workflow names.
+    5.    Insert logging...
     '''
 
 

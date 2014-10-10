@@ -17,7 +17,7 @@ from Wfa import Wfa
 from time import sleep
 
 # Instantiate an instance with the host, workflow name, username, and password
-wfa = Wfa("cyberman", "Create an NFS Volume", "admin", "sp1Tfir3")
+wfa = Wfa("cyberman", "os_create_nfs_share_cdot", "admin", "sp1Tfir3")
 cycleTime = 5
 
 # Map wfa parameters to internal variables...
@@ -51,7 +51,7 @@ wfaXml = wfa.getRestResponse(wfa.workflowQueryURI)
 # Then use it to get both sets of information.
 wfa.printWorkflowInputList(wfaXml)
 wfa.printWorkflowOutputList(wfaXml)
-
+quit()
 # How to execute a workflow.
 wfa.setupWorkflow(newWfaParamMap)
 wfa.executeWorkflow()
