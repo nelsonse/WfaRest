@@ -15,9 +15,6 @@ if __name__ == '__main__':
 # Import the class (obviously)
 from Wfa import Wfa
 from time import sleep
-
-# Instantiate an instance with the host, workflow name, username, and password
-wfa = Wfa("cyberman", "os_create_nfs_share_cdot", "admin", "sp1Tfir3")
 cycleTime = 5
 
 # Map wfa parameters to internal variables...
@@ -33,7 +30,7 @@ wfaParamMap = {
 # in the paramMap, but I wanted to keep it clean for demonstration purposes.
 # volume size is in GB * 1.25 according to the workflow
 wfaParams = {
-             'volName' : "test11",
+             'volName' : "test12",
              'volSize' : 1,
              'rwHosts' : "enterprise, intrepid",
              'roHosts' : None,
@@ -44,6 +41,9 @@ newWfaParamMap = {}
 for paramKey in wfaParamMap:
     newWfaParamMap[paramKey] = wfaParams[wfaParamMap[paramKey]]
 
+# Instantiate an instance with the host, workflow name, username, and password
+wfa = Wfa(wfaServer = "cyberman", workflowName = "Create an NFS Volume", wfaUser = "admin", wfaPw = "sp1Tfir3", wfaParamMap = newWfaParamMap)
+
 # How to get the workflow parameters that are possible...
 # We get the raw XML here...
 wfaXml = wfa.getRestResponse(wfa.workflowQueryURI)
@@ -51,9 +51,11 @@ wfaXml = wfa.getRestResponse(wfa.workflowQueryURI)
 # Then use it to get both sets of information.
 wfa.printWorkflowInputList(wfaXml)
 wfa.printWorkflowOutputList(wfaXml)
-quit()
+
 # How to execute a workflow.
-wfa.setupWorkflow(newWfaParamMap)
+# Old form - still valid
+# wfa.setupWorkflow(newWfaParamMap)
+wfa.setupWorkflow()
 wfa.executeWorkflow()
 
 # Get the initial status (simple status)

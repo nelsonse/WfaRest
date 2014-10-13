@@ -68,21 +68,17 @@ class Wfa(object):
     3.    Simple credentials - the urllib2 library only uses simply credentials.  Need to investigate how this operates with Keystone.
     4.    Allow for workflow UUIDs to be specified during instantiation vs. simply workflow names.
     5.    Insert logging...
-    '''
-
-
-    def __init__(self, wfaServer, workflowName, wfaUser=None, wfaPw=None):
-        import urllib
-        
-        # Setter...       
-        username = wfaUser
-        password = wfaPw
-        
-        # Instantiate class variable instances
-        self.workflowInputXml = ""
-        self.wfaExecuteLink = ""
-        
-        '''
+    
+    ***************************************************************************************************************************************
+    Wfa class constructor
+    
+        wfaDict has the following structure (the same as the discrete arguments)
+            wfaServer : <wfa server name> <mandatory> <string>
+            wfaUser : <wfa user to execute workflow> <mandatory> <string>
+            wfaPw : <password for wfa user> <mandatory key> <string>
+            wfaParamMap : <mapping of workflow parameters with appropriate values> <mandatory> <dictionary>
+            workflowName : <workflow name to execute> <mandatory> <string> 
+                    
         Job dictionary.  Maintains state of the workflow job during
         execution.  Key defintions are:
             jobSelfLink - URI for the workflow job
@@ -95,7 +91,21 @@ class Wfa(object):
                 Key: Parameter Name being returned by the workflow
                 Value: Value associated with the parameter name.
                 Only populated after successful completion.
-        ''' 
+    '''
+
+    def __init__(self, wfaServer=None, workflowName=None, wfaUser=None, wfaPw=None, wfaParamMap=None, wfaDict=None):
+        import urllib
+        
+        # Instantiate class variable instances
+        self.workflowInputXml = None
+        self.wfaExecuteLink = None      
+        
+        
+        if(wfaDict != None or type(wfaDict) == dict):
+            self.wfaDict = wfaDict
+        else:
+            self.wfaDict = locals()
+
         self.jobDict = {
                         "jobSelfLink" : None,
                         "jobId" : None,
@@ -115,8 +125,8 @@ class Wfa(object):
     </workflowInput>
 """
         # Setup required URIs
-        baseURI = "http://" + wfaServer + "/rest/workflows"
-        self.workflowQueryURI = baseURI + "?name=" + urllib.quote_plus(workflowName)
+        baseURI = "http://" + self.wfaDict['wfaServer'] + "/rest/workflows"
+        self.workflowQueryURI = baseURI + "?name=" + urllib.quote_plus(self.wfaDict['workflowName'])
         
         # Set HTTP Header options
         self._workflowRestHeader = {
@@ -124,7 +134,7 @@ class Wfa(object):
                       }        
         
         # Build the connection for this instantiation
-        self._buildConnection(baseURI, username, password)
+        self._buildConnection(baseURI, self.wfaDict['wfaUser'], self.wfaDict['wfaPw'])
         
         return
     
@@ -133,7 +143,7 @@ class Wfa(object):
     '''
     def getWfaJobStatus(self):
         
-        # get the raw data by issuring a query against WFA
+        # get the raw data by issuing a query against WFA
         jobXml = self.getRestResponse(self.jobDict['jobSelfLink'])
         
         '''
@@ -205,6 +215,8 @@ class Wfa(object):
         # of lines.
         for uInput in inputList:
             wfaParamName = uInput.find('name').text
+            # Parameter name (WFA Parameter) is not in the map, this will currently fail.
+            # However, if the map contains values not recogized by WFA, they will be silently skipped
             wfaParamValue = wfaParamMap[wfaParamName] 
             if(wfaParamValue != None):
                 if(type(wfaParamValue) is not str):
@@ -274,7 +286,12 @@ class Wfa(object):
     
     NOTE: The dictionary containing the mapping of WFA parameters to values is required for this.
     '''       
-    def setupWorkflow(self, wfaParamMap):           
+    def setupWorkflow(self, wfaParamMap=None):
+        if(wfaParamMap == None and self.wfaDict['wfaParamMap'] == None):
+            raise Exception("No WFA Parameters defined")
+        elif(self.wfaDict['wfaParamMap'] != None and wfaParamMap == None):
+            wfaParamMap = self.wfaDict['wfaParamMap']
+                   
         # wfaUUID = wfaXml[0].get('uuid')
         # Get the raw XML from the initial query after opening the connection
         wfaXml = self.getRestResponse(self.workflowQueryURI)
@@ -321,3 +338,179 @@ class Wfa(object):
         
         # Translate the raw string XML to something that is usable on the way back out.
         return(ET.fromstring(response))
+
+class WfaOs(Wfa):
+    '''
+    WfaOs - OpenStack child class for Wfa
+    
+    This child class provides a method of providing a standard interface to WFA via some calls
+    to construct the appropriate WFA call.  This class uses many of same inputs to the parent 
+    class, except uses a dictionary to consolidate the call into a single argument.
+    
+    However, there are some fundamental differences.  In order to present a standard interface
+    to OpenStack, and to prevent the necessity of hardcoding the workflow names into OpenStack, we
+    have instead hard coded "default" workflow names within this class.  These default workflows
+    provide the minimal amount of interface required between OpenStack and WFA to execute the various
+    operations that are advertised by OpenStack.  As operations are added to OpenStack, they can be 
+    added here as an additional specification using the class structure below as a template.
+    
+    The first implementation of this represent the Manila <-> WFA integration.  As additional workflows
+    are defined for other projects within OpenStack, the class is setup for those definitions to be added.
+    
+    Additional parameters that may be optional to the base workflows can be specified via the 'wfaExtraSpec'
+    dictionary that is embedded within the main dictionary argument.  Currently, these extra specs are provided
+    within the manila.conf file as wfa_extra_spec = { <dictionary of specs> }.  This dictionary should be 
+    structured as <WFA Parameter Name> : <Value to apply>  
+    
+    Instead of specifying individual workflow names, the class is instantiated by specifying an OpenStack operation
+    to execute, a platform to execute against, and the OpenStack project calling the workflow.  This key ends up pointing to 
+    both a standard workflow, and to the base WFA <-> OpenStack parameter map.  This map provides the method by 
+    which OpenStack can pass parameters to WFA.  As with the base class, return parameters are passed via the jobDict
+    dictionary.  
+    
+    If a non-standard workflow name is used, but will still use the same OpenStack standard parameters, then 
+    the wfaDict['workflowName'] key can be populated with this new workflow name.  NOTE: The standard parameters are 
+    not available for changing at this time.  In order to change both the workflow name and the parameters (without 
+    altering this class directly), use the parent Wfa class and specify either a dictionary (as defined in the 
+    class documentation) 
+    
+    After the class is instatiated, if there are extra specs to be added to the parameter map, use the appendExtraSpec()
+    method to append these values.  This is separate from the initialization of the parameter map as the sample values 
+    must be evaluated against the standard OpenStack parameters that would be set as part of the driver.
+    
+    ****************************************************************************************************************
+    WfaOs class constructor
+    
+    This is the constructor for this child class.  The constructor takes a single argument - a dictionary with the
+    following structure.
+        wfaDict has the following structure:
+            wfaServer : <wfa server name> <mandatory key> <string>
+            wfaUser : <wfa user to execute workflow> <manadatory key> <string>
+            wfaPw : <password for wfa user> <mandatory key> <string>
+            wfaPlatform : <Enum of either 7m or cdot> 
+            workflowName : <workflow name - overrides default workflow name> <string> 
+            wfaOperation : <Enum of defined OpenStack operations
+                            Manila:
+                            create_share, delete_share, create_snapshot, delete_snapshot, create_nfs_share_snapshot,
+                            grant_ip, deny_ip
+                            ...others to follow...
+                            >
+            osProject : <Enum of OpenStack storage projects - currently [manila | cinder | swift]
+            wfaExtraSpec : <dictionary of extra specs to insert into parameters map.  
+                            extra specs must be passed as key/value pairs of the 
+                            WFA Parameter as defined in the workflow, matched with the 
+                            associated value>
+    '''
+
+    def __init__(self, wfaDict=None):
+
+        # Setter...
+        self.wfaDict = wfaDict
+        
+        '''
+        Look at the OpenStack project being used in this instance.  Other projects can be implemented
+        by simply creating the two methods listed below for the OpenStack project being implemented.
+        See the method documentation.
+        '''
+        if(wfaDict['osProject'] == 'manila'):
+            setWorkflows = self.setDefManilaWorkflows
+            setWfaParamMap = self.getDefManilaParamMap
+        else:
+            raise Exception('OpenStack project' + wfaDict['osProject'] + 'not implemented...yet.')
+
+        # If the workflow name is not defined, derive it from the operation requested.
+        if(not 'workflowName' in self.wfaDict):        
+            self.wfaDict['workflowName'] = setWorkflows()[self.wfaDict['wfaOperation']]
+        elif(wfaDict['workflowName'] == None):
+            self.wfaDict['workflowName'] = setWorkflows()[self.wfaDict['wfaOperation']]
+        
+        # Instantiate the base class    
+        Wfa.__init__(self, wfaDict = self.wfaDict)
+        
+        # Install the generated parameter map.
+        self.wfaDict['wfaParamMap'] = setWfaParamMap()
+        return
+    '''
+    appendExtraSpec - append any extra specifications to the base parameter map after evaluation 
+    of the template parameters.
+    '''
+    def appendExtraSpec(self):
+        if(self.wfaDict['wfaExtraSpec'] != None and type(self.wfaDict['wfaExtraSpec']) == dict):
+            for spec in self.wfaDict['wfaExtraSpec'].keys():
+                self.wfaDict['wfaParamMap'][spec] = self.wfaDict['wfaExtraSpec'][spec]
+        return
+    
+    '''
+    setDefManilaWorkflows - set the workflow name for each platform type for Manila
+    '''
+    def setDefManilaWorkflows(self):
+        if(self.wfaDict['wfaPlatform'] == '7m'):
+            return( {
+                           'create_share' : 'os_create_nfs_share_7m',
+                           'delete_share' : 'os_delete_nfs_share_7m',
+                           'create_snapshot' : 'os_create_snapshot_7m',
+                           'delete_snapshot' : 'os_delete_snapshot_7m',
+                           'create_share_snapshot' : 'os_create_nfs_share_snapshot_7m',
+                           'delete_share_snapshot' : 'os_delete_nfs_share_snapshot_7m',
+                           'grant_ip' : 'os_grant_ip_7m',
+                           'deny_ip' : 'os_deny_ip_7m'
+                           })
+        elif(self.wfaDict['wfaPlatform'] == 'cdot'):
+            return( {
+                           'create_share' : 'os_create_nfs_share_cdot',
+                           'delete_share' : 'os_delete_nfs_share_cdot',
+                           'create_snapshot' : 'os_create_snapshot_cdot',
+                           'delete_snapshot' : 'os_delete_snapshot_cdot',
+                           'create_share_snapshot' : 'os_create_nfs_share_snapshot_cdot',
+                           'delete_share_snapshot' : 'os_delete_nfs_share_snapshot_cdot',
+                           'grant_ip' : 'os_grant_ip_cdot',
+                           'deny_ip' : 'os_deny_ip_cdot'
+                           })
+        else:
+            raise Exception("Invalid platform type")
+    
+    '''
+    getDefManilaParamMap - return the default parameter map for the select Manila operation.
+    '''    
+    def getDefManilaParamMap(self):
+        if(self.wfaDict['wfaOperation'] == 'create_share'):
+            return({
+                    'volSize' : 'shareSize',
+                    'volName' : 'shareName',
+                    'protocol' : 'shareProto'
+                    })
+        elif(self.wfaDict['wfaOperation'] == 'delete_share'):
+            return({
+                    'volName' : 'shareName'
+                    })
+        elif(self.wfaDict['wfaOperation'] == 'create_snapshot'):
+            return({
+                   'snapName' : 'snapID',
+                   'volName' : 'shareName' 
+                    })
+        elif(self.wfaDict['wfaOperation'] == 'delete_snapshot'):
+            return({
+                   'snapName' : 'snapID'
+                    })
+        elif(self.wfaDict['wfaOperation'] == 'create_share_snapshot'):
+            return({
+                  'volSize' : 'shareSize',
+                  'volName' : 'shareName',
+                  'protocol' : 'shareProto',
+                  'snapName' : 'snapID',
+                  'sourceVolName' : 'origShareName' 
+                    })
+        elif(self.wfaDict['wfaOperation'] == 'grant_ip'):
+            return({
+                   'accessIP' : 'shareIP',
+                   'wolName' : 'shareName',
+                   'accessRule' : 'accessType' 
+                    })
+        elif(self.wfaDict['wfaOperation'] == 'deny_ip'):
+            return({
+                    'accessIP' : 'shareIP',
+                    'volName' : 'shareName'
+                    })
+        else:
+            return('Operation not implemented')
+    
